@@ -90,6 +90,35 @@ export function useUsers() {
     updatePassword: (id: string, password: string) => {
       update(users.map((u) => (u.id === id ? { ...u, password } : u)));
     },
+    /** Pastikan setiap mahasiswa di daftar punya akun login (username=nim, default password=nim).
+     *  Hapus akun mahasiswa yang studentId-nya sudah tidak ada. */
+    syncMahasiswa: (students: { id: string; nim: string; nama: string }[]) => {
+      const studentIds = new Set(students.map((s) => s.id));
+      const kept = users.filter((u) => u.role !== "mahasiswa" || (u.studentId && studentIds.has(u.studentId)));
+      const existingByStudent = new Map(
+        kept.filter((u) => u.role === "mahasiswa").map((u) => [u.studentId!, u]),
+      );
+      const added: User[] = [];
+      for (const s of students) {
+        if (!existingByStudent.has(s.id)) {
+          added.push({
+            id: crypto.randomUUID(),
+            username: s.nim,
+            password: s.nim,
+            nama: s.nama,
+            role: "mahasiswa",
+            studentId: s.id,
+            nim: s.nim,
+          });
+        }
+      }
+      const next = [...kept, ...added].map((u) => {
+        if (u.role !== "mahasiswa" || !u.studentId) return u;
+        const s = students.find((x) => x.id === u.studentId);
+        return s ? { ...u, nama: s.nama, nim: s.nim } : u;
+      });
+      update(next);
+    },
   };
 }
 
