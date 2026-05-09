@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   STATUS_LIST,
@@ -7,6 +7,8 @@ import {
   useSessions,
   useStudents,
 } from "@/lib/attendance-store";
+import { ROLE_LABEL, Role, useAuth, useUsers } from "@/lib/auth-store";
+import { LoginForm } from "@/components/login-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,13 +18,15 @@ import { toast } from "sonner";
 import { Toaster } from "@/components/ui/sonner";
 import {
   CalendarCheck,
-  GraduationCap,
   KeyRound,
+  LogOut,
   Plus,
   Trash2,
   Users,
   CheckCircle2,
   RotateCcw,
+  ShieldCheck,
+  GraduationCap,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -33,58 +37,305 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Buat sesi absensi dengan kode unik, catat kehadiran 30 mahasiswa: Hadir, Izin, Sakit, Alpa.",
+          "Aplikasi absensi mahasiswa dengan login terpisah untuk admin, dosen, dan mahasiswa.",
       },
     ],
   }),
 });
 
 function Index() {
+  const { current } = useAuth();
+
   return (
-    <div className="min-h-screen bg-[image:var(--gradient-subtle)]">
+    <>
       <Toaster richColors position="top-center" />
-      <Header />
-      <main className="container mx-auto max-w-6xl px-4 py-8">
-        <Tabs defaultValue="dosen" className="w-full">
-          <TabsList className="mb-6 grid w-full max-w-md grid-cols-3">
-            <TabsTrigger value="dosen">Dosen</TabsTrigger>
-            <TabsTrigger value="mahasiswa">Mahasiswa</TabsTrigger>
-            <TabsTrigger value="kelola">Kelola</TabsTrigger>
-          </TabsList>
-          <TabsContent value="dosen">
-            <DosenPanel />
-          </TabsContent>
-          <TabsContent value="mahasiswa">
-            <MahasiswaPanel />
-          </TabsContent>
-          <TabsContent value="kelola">
-            <KelolaPanel />
-          </TabsContent>
-        </Tabs>
-      </main>
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-        Data tersimpan lokal di browser ini.
-      </footer>
-    </div>
+      {!current ? (
+        <LoginForm />
+      ) : (
+        <div className="min-h-screen bg-[image:var(--gradient-subtle)]">
+          <Header />
+          <main className="container mx-auto max-w-6xl px-4 py-8">
+            {current.role === "admin" && <AdminView />}
+            {current.role === "dosen" && <DosenPanel />}
+            {current.role === "mahasiswa" && <MahasiswaPanel />}
+          </main>
+          <footer className="border-t py-6 text-center text-xs text-muted-foreground">
+            Data tersimpan lokal di browser ini.
+          </footer>
+        </div>
+      )}
+    </>
   );
 }
 
 function Header() {
+  const { current, logout } = useAuth();
+  if (!current) return null;
   return (
     <header className="border-b bg-card/60 backdrop-blur">
-      <div className="container mx-auto flex max-w-6xl items-center gap-3 px-4 py-5">
+      <div className="container mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
         <div
           className="flex h-10 w-10 items-center justify-center rounded-xl text-primary-foreground"
           style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-elegant)" }}
         >
           <CalendarCheck className="h-5 w-5" />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <h1 className="text-lg font-semibold tracking-tight">AbsenKelas</h1>
-          <p className="text-xs text-muted-foreground">Absensi mahasiswa berbasis kode sesi</p>
+          <p className="truncate text-xs text-muted-foreground">
+            {current.nama} · {ROLE_LABEL[current.role]}
+            {current.nim ? ` · ${current.nim}` : ""}
+          </p>
         </div>
+        <Button variant="outline" size="sm" onClick={logout} className="gap-1.5">
+          <LogOut className="h-3.5 w-3.5" /> Keluar
+        </Button>
       </div>
     </header>
+  );
+}
+
+/* ============== ADMIN ============== */
+
+function AdminView() {
+  return (
+    <Tabs defaultValue="mahasiswa" className="w-full">
+      <TabsList className="mb-6 grid w-full max-w-md grid-cols-2">
+        <TabsTrigger value="mahasiswa">Kelola Mahasiswa</TabsTrigger>
+        <TabsTrigger value="dosen">Kelola Dosen</TabsTrigger>
+      </TabsList>
+      <TabsContent value="mahasiswa">
+        <KelolaMahasiswa />
+      </TabsContent>
+      <TabsContent value="dosen">
+        <KelolaDosen />
+      </TabsContent>
+    </Tabs>
+  );
+}
+
+function KelolaMahasiswa() {
+  const { students, addStudent, removeStudent, resetDefault } = useStudents();
+  const { users, syncMahasiswa, updatePassword } = useUsers();
+  const [nim, setNim] = useState("");
+  const [nama, setNama] = useState("");
+
+  // Sinkronkan akun mahasiswa setiap kali daftar berubah
+  useEffect(() => {
+    if (students.length > 0) syncMahasiswa(students);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [students]);
+
+  const userByStudent = useMemo(
+    () => new Map(users.filter((u) => u.role === "mahasiswa").map((u) => [u.studentId, u])),
+    [users],
+  );
+
+  const handleAdd = () => {
+    if (!nim.trim() || !nama.trim()) return toast.error("NIM dan nama wajib diisi");
+    addStudent(nim.trim(), nama.trim());
+    setNim("");
+    setNama("");
+    toast.success(`Mahasiswa ditambahkan. Login awal: ${nim.trim()} / ${nim.trim()}`);
+  };
+
+  const handleResetPwd = (id: string, nim?: string) => {
+    const np = prompt("Password baru:", nim ?? "");
+    if (np && np.trim()) {
+      updatePassword(id, np.trim());
+      toast.success("Password diperbarui");
+    }
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Plus className="h-4 w-4" /> Tambah Mahasiswa
+          </CardTitle>
+          <CardDescription>Akun login otomatis dibuat (username = NIM)</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input placeholder="NIM" value={nim} onChange={(e) => setNim(e.target.value)} />
+          <Input
+            placeholder="Nama lengkap"
+            value={nama}
+            onChange={(e) => setNama(e.target.value)}
+          />
+          <Button onClick={handleAdd} className="w-full">
+            Tambah
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            onClick={() => {
+              if (confirm("Reset ke 30 mahasiswa default? Akun lama akan diganti.")) {
+                resetDefault();
+                toast.success("Daftar direset");
+              }
+            }}
+          >
+            Reset ke default (30)
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Users className="h-4 w-4" /> Daftar Mahasiswa ({students.length})
+          </CardTitle>
+          <CardDescription>Password awal sama dengan NIM</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="divide-y">
+            {students.map((m, i) => {
+              const u = userByStudent.get(m.id);
+              return (
+                <div key={m.id} className="flex items-center justify-between gap-2 py-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
+                      {i + 1}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium">{m.nama}</p>
+                      <p className="font-mono text-xs text-muted-foreground">{m.nim}</p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 gap-1">
+                    {u && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleResetPwd(u.id, m.nim)}
+                        className="text-xs"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => removeStudent(m.id)}
+                      className="text-muted-foreground hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function KelolaDosen() {
+  const { users, addUser, removeUser, updatePassword } = useUsers();
+  const [username, setUsername] = useState("");
+  const [nama, setNama] = useState("");
+  const [password, setPassword] = useState("");
+
+  const dosens = users.filter((u) => u.role === "dosen");
+
+  const handleAdd = () => {
+    if (!username.trim() || !nama.trim() || !password.trim())
+      return toast.error("Semua kolom wajib diisi");
+    try {
+      addUser({ username, nama: nama.trim(), password, role: "dosen" });
+      toast.success("Dosen ditambahkan");
+      setUsername("");
+      setNama("");
+      setPassword("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal");
+    }
+  };
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Plus className="h-4 w-4" /> Tambah Dosen
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
+          <Input placeholder="Nama lengkap" value={nama} onChange={(e) => setNama(e.target.value)} />
+          <Input
+            placeholder="Password"
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Button onClick={handleAdd} className="w-full">
+            Tambah
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <GraduationCap className="h-4 w-4" /> Daftar Dosen ({dosens.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {dosens.length === 0 && (
+            <p className="text-sm text-muted-foreground">Belum ada akun dosen.</p>
+          )}
+          <div className="divide-y">
+            {dosens.map((d) => (
+              <div key={d.id} className="flex items-center justify-between py-2.5">
+                <div className="flex items-center gap-3 min-w-0">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                    <ShieldCheck className="h-4 w-4" />
+                  </span>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{d.nama}</p>
+                    <p className="font-mono text-xs text-muted-foreground">{d.username}</p>
+                  </div>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const np = prompt("Password baru untuk " + d.username);
+                      if (np && np.trim()) {
+                        updatePassword(d.id, np.trim());
+                        toast.success("Password diperbarui");
+                      }
+                    }}
+                  >
+                    <KeyRound className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      try {
+                        removeUser(d.id);
+                        toast.success("Dosen dihapus");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "Gagal");
+                      }
+                    }}
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
@@ -185,11 +436,13 @@ function DosenPanel() {
             }}
           />
         ) : (
-          <EmptyState
-            icon={<CalendarCheck className="h-8 w-8" />}
-            title="Belum ada sesi aktif"
-            desc="Buat sesi baru untuk memulai absensi."
-          />
+          <Card className="border-dashed">
+            <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
+              <CalendarCheck className="h-8 w-8" />
+              <p className="font-medium">Belum ada sesi aktif</p>
+              <p className="text-sm">Buat sesi baru untuk memulai absensi.</p>
+            </CardContent>
+          </Card>
         )}
       </div>
     </div>
@@ -267,7 +520,12 @@ function SessionDetail({
                 <CheckCircle2 className="h-3.5 w-3.5" /> Tutup sesi
               </Button>
             )}
-            <Button variant="ghost" size="sm" onClick={onDelete} className="gap-1.5 text-destructive hover:text-destructive">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onDelete}
+              className="gap-1.5 text-destructive hover:text-destructive"
+            >
               <Trash2 className="h-3.5 w-3.5" /> Hapus
             </Button>
           </div>
@@ -320,32 +578,40 @@ function SessionDetail({
 /* ============== MAHASISWA ============== */
 
 function MahasiswaPanel() {
+  const { current } = useAuth();
   const { sessions, setStatus } = useSessions();
-  const { students } = useStudents();
   const [kode, setKode] = useState("");
-  const [studentId, setStudentId] = useState("");
   const [status, setStatusVal] = useState<Status>("Hadir");
 
+  const myAttendance = useMemo(() => {
+    if (!current?.studentId) return [];
+    return sessions
+      .filter((s) => s.attendance[current.studentId!])
+      .map((s) => ({ s, status: s.attendance[current.studentId!] }));
+  }, [sessions, current]);
+
   const handleSubmit = () => {
+    if (!current?.studentId) return toast.error("Akun mahasiswa tidak terhubung dengan data");
     const s = findByKode(sessions, kode);
     if (!s) return toast.error("Kode sesi tidak ditemukan");
     if (s.closed) return toast.error("Sesi sudah ditutup");
-    if (!studentId) return toast.error("Pilih nama Anda");
-    setStatus(s.id, studentId, status);
+    setStatus(s.id, current.studentId, status);
     toast.success(`Absensi tercatat: ${status}`);
     setKode("");
-    setStudentId("");
   };
 
   return (
-    <div className="mx-auto max-w-xl">
+    <div className="mx-auto grid max-w-xl gap-6">
       <Card>
         <CardHeader>
           <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
             <KeyRound className="h-6 w-6" />
           </div>
           <CardTitle>Absen dengan Kode Sesi</CardTitle>
-          <CardDescription>Masukkan kode dari dosen untuk mencatat kehadiran.</CardDescription>
+          <CardDescription>
+            Masuk sebagai <span className="font-medium text-foreground">{current?.nama}</span> ·{" "}
+            {current?.nim}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
@@ -357,21 +623,6 @@ function MahasiswaPanel() {
               className="font-mono text-lg tracking-widest uppercase"
               maxLength={10}
             />
-          </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Nama Anda</label>
-            <select
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="">— Pilih nama —</option>
-              {students.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.nim} — {m.nama}
-                </option>
-              ))}
-            </select>
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium">Status</label>
@@ -396,81 +647,26 @@ function MahasiswaPanel() {
           </Button>
         </CardContent>
       </Card>
-    </div>
-  );
-}
-
-/* ============== KELOLA ============== */
-
-function KelolaPanel() {
-  const { students, addStudent, removeStudent, resetDefault } = useStudents();
-  const [nim, setNim] = useState("");
-  const [nama, setNama] = useState("");
-
-  const handleAdd = () => {
-    if (!nim.trim() || !nama.trim()) return toast.error("NIM dan nama wajib diisi");
-    addStudent(nim.trim(), nama.trim());
-    setNim("");
-    setNama("");
-    toast.success("Mahasiswa ditambahkan");
-  };
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Tambah Mahasiswa
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Input placeholder="NIM" value={nim} onChange={(e) => setNim(e.target.value)} />
-          <Input placeholder="Nama lengkap" value={nama} onChange={(e) => setNama(e.target.value)} />
-          <Button onClick={handleAdd} className="w-full">
-            Tambah
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              if (confirm("Reset ke 30 mahasiswa default?")) {
-                resetDefault();
-                toast.success("Daftar direset");
-              }
-            }}
-          >
-            Reset ke default (30)
-          </Button>
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4" /> Daftar Mahasiswa ({students.length})
-          </CardTitle>
+          <CardTitle className="text-base">Riwayat Absensi Saya</CardTitle>
+          <CardDescription>{myAttendance.length} sesi</CardDescription>
         </CardHeader>
         <CardContent>
+          {myAttendance.length === 0 && (
+            <p className="text-sm text-muted-foreground">Belum ada absensi.</p>
+          )}
           <div className="divide-y">
-            {students.map((m, i) => (
-              <div key={m.id} className="flex items-center justify-between py-2.5">
-                <div className="flex items-center gap-3">
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="text-sm font-medium">{m.nama}</p>
-                    <p className="font-mono text-xs text-muted-foreground">{m.nim}</p>
-                  </div>
+            {myAttendance.map(({ s, status }) => (
+              <div key={s.id} className="flex items-center justify-between py-2.5">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium">{s.judul}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(s.createdAt).toLocaleString("id-ID")}
+                  </p>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeStudent(m.id)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+                <StatusBadge status={status} />
               </div>
             ))}
           </div>
@@ -480,25 +676,5 @@ function KelolaPanel() {
   );
 }
 
-function EmptyState({
-  icon,
-  title,
-  desc,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  desc: string;
-}) {
-  return (
-    <Card className="border-dashed">
-      <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-        <div className="mb-3 flex h-14 w-14 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          {icon}
-        </div>
-        <p className="font-medium">{title}</p>
-        <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
-        <GraduationCap className="mt-6 h-5 w-5 text-muted-foreground/50" />
-      </CardContent>
-    </Card>
-  );
-}
+// Suppress unused import warnings
+void Role;
