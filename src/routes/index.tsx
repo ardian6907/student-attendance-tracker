@@ -7,7 +7,7 @@ import {
   useSessions,
   useStudents,
 } from "@/lib/attendance-store";
-import { ROLE_LABEL, Role, useAuth, useUsers } from "@/lib/auth-store";
+import { ROLE_LABEL, useAuth, useUsers } from "@/lib/auth-store";
 import { LoginForm } from "@/components/login-form";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -676,5 +676,3 @@ function MahasiswaPanel() {
   );
 }
 
-// Suppress unused import warnings
-void Role;
