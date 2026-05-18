@@ -14,16 +14,126 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      attendance_sessions: {
+        Row: {
+          closed: boolean
+          created_at: string
+          created_by: string | null
+          id: string
+          judul: string
+          kode: string
+        }
+        Insert: {
+          closed?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          judul: string
+          kode: string
+        }
+        Update: {
+          closed?: boolean
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          judul?: string
+          kode?: string
+        }
+        Relationships: []
+      }
+      attendances: {
+        Row: {
+          created_at: string
+          id: string
+          keterangan: string | null
+          session_id: string
+          status: Database["public"]["Enums"]["attendance_status"]
+          student_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          keterangan?: string | null
+          session_id: string
+          status?: Database["public"]["Enums"]["attendance_status"]
+          student_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          keterangan?: string | null
+          session_id?: string
+          status?: Database["public"]["Enums"]["attendance_status"]
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "attendances_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "attendance_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          id: string
+          nama: string
+          nim: string | null
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          id: string
+          nama: string
+          nim?: string | null
+          username: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nama?: string
+          nim?: string | null
+          username?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      has_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _user_id: string
+        }
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "dosen" | "mahasiswa"
+      attendance_status: "Hadir" | "Izin" | "Sakit" | "Alpa"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -150,6 +260,9 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "dosen", "mahasiswa"],
+      attendance_status: ["Hadir", "Izin", "Sakit", "Alpa"],
+    },
   },
 } as const
