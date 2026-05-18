@@ -1,4 +1,4 @@
-import { Status } from "@/lib/attendance-store";
+export type Status = "Hadir" | "Izin" | "Sakit" | "Alpa";
 import { cn } from "@/lib/utils";
 
 const styles: Record<Status, string> = {

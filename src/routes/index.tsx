@@ -1,672 +1,649 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerFn } from "@tanstack/react-start";
+import type { User } from "@supabase/supabase-js";
+import { QRCodeSVG } from "qrcode.react";
+import { toast } from "sonner";
+
+import { supabase } from "@/integrations/supabase/client";
 import {
-  STATUS_LIST,
-  Status,
-  findByKode,
-  useSessions,
-  useStudents,
-} from "@/lib/attendance-store";
-import { ROLE_LABEL, useAuth, useUsers } from "@/lib/auth-store";
+  adminCreateUser,
+  adminDeleteUser,
+  adminResetPassword,
+} from "@/lib/admin.functions";
 import { LoginForm } from "@/components/login-form";
+import { QrScanner } from "@/components/qr-scanner";
+import { StatusBadge } from "@/components/status-badge";
+import { Toaster } from "@/components/ui/sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { StatusBadge } from "@/components/status-badge";
-import { toast } from "sonner";
-import { Toaster } from "@/components/ui/sonner";
 import {
-  CalendarCheck,
-  KeyRound,
-  LogOut,
-  Plus,
-  Trash2,
-  Users,
-  CheckCircle2,
-  RotateCcw,
-  ShieldCheck,
-  GraduationCap,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
+  DialogFooter, DialogDescription,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import {
+  CalendarCheck, LogOut, Plus, Trash2, Users, KeyRound, ShieldCheck,
+  GraduationCap, QrCode, ScanLine, X, RotateCcw, CheckCircle2,
 } from "lucide-react";
 
-export const Route = createFileRoute("/")({
-  component: Index,
-  head: () => ({
-    meta: [
-      { title: "AbsenKelas — Aplikasi Absensi Mahasiswa" },
-      {
-        name: "description",
-        content:
-          "Aplikasi absensi mahasiswa dengan login terpisah untuk admin, dosen, dan mahasiswa.",
-      },
-    ],
-  }),
-});
+export const Route = createFileRoute("/")({ component: App });
 
-function Index() {
-  const { current } = useAuth();
+type Role = "admin" | "dosen" | "mahasiswa";
+type Status = "Hadir" | "Izin" | "Sakit" | "Alpa";
+
+const STATUS_LIST: Status[] = ["Hadir", "Izin", "Sakit", "Alpa"];
+const ROLE_LABEL: Record<Role, string> = {
+  admin: "Administrator",
+  dosen: "Dosen",
+  mahasiswa: "Mahasiswa",
+};
+
+// ---------- session hook ----------
+function useSession() {
+  const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null);
+      setReady(true);
+    });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      setUser(s?.user ?? null);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
+  return { user, ready };
+}
+
+function useMe(userId: string | undefined) {
+  return useQuery({
+    enabled: !!userId,
+    queryKey: ["me", userId],
+    queryFn: async () => {
+      const [{ data: p }, { data: r }] = await Promise.all([
+        supabase.from("profiles").select("*").eq("id", userId!).maybeSingle(),
+        supabase.from("user_roles").select("role").eq("user_id", userId!),
+      ]);
+      const roles = (r ?? []).map((x) => x.role as Role);
+      const role: Role =
+        roles.includes("admin") ? "admin" :
+        roles.includes("dosen") ? "dosen" : "mahasiswa";
+      return { profile: p, role };
+    },
+  });
+}
+
+// ---------- App shell ----------
+function App() {
+  const { user, ready } = useSession();
+  const me = useMe(user?.id);
+
+  if (!ready) {
+    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Memuat...</div>;
+  }
+  if (!user) {
+    return <><LoginForm /><Toaster /></>;
+  }
+  if (me.isLoading || !me.data) {
+    return <div className="flex min-h-screen items-center justify-center text-muted-foreground">Memuat profil...</div>;
+  }
+
+  const role = me.data.role;
+  const nama = me.data.profile?.nama ?? user.email ?? "User";
 
   return (
-    <>
-      <Toaster richColors position="top-center" />
-      {!current ? (
-        <LoginForm />
-      ) : (
-        <div className="min-h-screen bg-[image:var(--gradient-subtle)]">
-          <Header />
-          <main className="container mx-auto max-w-6xl px-4 py-8">
-            {current.role === "admin" && <AdminView />}
-            {current.role === "dosen" && <DosenPanel />}
-            {current.role === "mahasiswa" && <MahasiswaPanel />}
-          </main>
-          <footer className="border-t py-6 text-center text-xs text-muted-foreground">
-            Data tersimpan lokal di browser ini.
-          </footer>
+    <div className="min-h-screen bg-[image:var(--gradient-subtle)]">
+      <header className="border-b bg-background/80 backdrop-blur">
+        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
+          <div className="flex items-center gap-2">
+            <div
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-primary-foreground"
+              style={{ background: "var(--gradient-primary)" }}
+            >
+              <CalendarCheck className="h-4 w-4" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold leading-tight">AbsenKelas</p>
+              <p className="text-xs text-muted-foreground leading-tight">{nama} · {ROLE_LABEL[role]}</p>
+            </div>
+          </div>
+          <Button size="sm" variant="ghost" onClick={() => supabase.auth.signOut()} className="gap-1">
+            <LogOut className="h-4 w-4" /> Keluar
+          </Button>
         </div>
-      )}
-    </>
+      </header>
+      <main className="mx-auto max-w-5xl px-4 py-6">
+        {role === "admin" && <AdminPanel currentUserId={user.id} />}
+        {role === "dosen" && <DosenPanel userId={user.id} />}
+        {role === "mahasiswa" && <MahasiswaPanel userId={user.id} />}
+      </main>
+      <Toaster />
+    </div>
   );
 }
 
-function Header() {
-  const { current, logout } = useAuth();
-  if (!current) return null;
-  return (
-    <header className="border-b bg-card/60 backdrop-blur">
-      <div className="container mx-auto flex max-w-6xl items-center gap-3 px-4 py-4">
-        <div
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-primary-foreground"
-          style={{ background: "var(--gradient-primary)", boxShadow: "var(--shadow-elegant)" }}
-        >
-          <CalendarCheck className="h-5 w-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-lg font-semibold tracking-tight">AbsenKelas</h1>
-          <p className="truncate text-xs text-muted-foreground">
-            {current.nama} · {ROLE_LABEL[current.role]}
-            {current.nim ? ` · ${current.nim}` : ""}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={logout} className="gap-1.5">
-          <LogOut className="h-3.5 w-3.5" /> Keluar
-        </Button>
-      </div>
-    </header>
-  );
-}
+// ---------- Admin ----------
+function AdminPanel({ currentUserId }: { currentUserId: string }) {
+  const qc = useQueryClient();
+  const users = useQuery({
+    queryKey: ["all-users"],
+    queryFn: async () => {
+      const [{ data: profiles }, { data: roles }] = await Promise.all([
+        supabase.from("profiles").select("*").order("nama"),
+        supabase.from("user_roles").select("user_id, role"),
+      ]);
+      const roleMap = new Map<string, Role>();
+      for (const r of roles ?? []) {
+        const cur = roleMap.get(r.user_id);
+        if (!cur || r.role === "admin" || (r.role === "dosen" && cur === "mahasiswa")) {
+          roleMap.set(r.user_id, r.role as Role);
+        }
+      }
+      return (profiles ?? []).map((p) => ({ ...p, role: roleMap.get(p.id) ?? "mahasiswa" as Role }));
+    },
+  });
 
-/* ============== ADMIN ============== */
-
-function AdminView() {
   return (
-    <Tabs defaultValue="mahasiswa" className="w-full">
-      <TabsList className="mb-6 grid w-full max-w-md grid-cols-2">
-        <TabsTrigger value="mahasiswa">Kelola Mahasiswa</TabsTrigger>
-        <TabsTrigger value="dosen">Kelola Dosen</TabsTrigger>
+    <Tabs defaultValue="mahasiswa" className="space-y-4">
+      <TabsList>
+        <TabsTrigger value="mahasiswa" className="gap-1"><GraduationCap className="h-4 w-4"/>Mahasiswa</TabsTrigger>
+        <TabsTrigger value="dosen" className="gap-1"><ShieldCheck className="h-4 w-4"/>Dosen</TabsTrigger>
       </TabsList>
       <TabsContent value="mahasiswa">
-        <KelolaMahasiswa />
+        <UserManager
+          title="Kelola Mahasiswa"
+          role="mahasiswa"
+          users={(users.data ?? []).filter((u) => u.role === "mahasiswa")}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["all-users"] })}
+          currentUserId={currentUserId}
+        />
       </TabsContent>
       <TabsContent value="dosen">
-        <KelolaDosen />
+        <UserManager
+          title="Kelola Dosen"
+          role="dosen"
+          users={(users.data ?? []).filter((u) => u.role === "dosen")}
+          onChanged={() => qc.invalidateQueries({ queryKey: ["all-users"] })}
+          currentUserId={currentUserId}
+        />
       </TabsContent>
     </Tabs>
   );
 }
 
-function KelolaMahasiswa() {
-  const { students, addStudent, removeStudent, resetDefault } = useStudents();
-  const { users, syncMahasiswa, updatePassword } = useUsers();
-  const [nim, setNim] = useState("");
-  const [nama, setNama] = useState("");
+function UserManager({
+  title, role, users, onChanged, currentUserId,
+}: {
+  title: string;
+  role: Role;
+  users: Array<{ id: string; nama: string; username: string; nim: string | null }>;
+  onChanged: () => void;
+  currentUserId: string;
+}) {
+  const create = useServerFn(adminCreateUser);
+  const del = useServerFn(adminDeleteUser);
+  const reset = useServerFn(adminResetPassword);
 
-  // Sinkronkan akun mahasiswa setiap kali daftar berubah
-  useEffect(() => {
-    if (students.length > 0) syncMahasiswa(students);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [students]);
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ nama: "", username: "", nim: "", password: "" });
+  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [newPw, setNewPw] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  const userByStudent = useMemo(
-    () => new Map(users.filter((u) => u.role === "mahasiswa").map((u) => [u.studentId, u])),
-    [users],
-  );
-
-  const handleAdd = () => {
-    if (!nim.trim() || !nama.trim()) return toast.error("NIM dan nama wajib diisi");
-    addStudent(nim.trim(), nama.trim());
-    setNim("");
-    setNama("");
-    toast.success(`Mahasiswa ditambahkan. Login awal: ${nim.trim()} / ${nim.trim()}`);
-  };
-
-  const handleResetPwd = (id: string, nim?: string) => {
-    const np = prompt("Password baru:", nim ?? "");
-    if (np && np.trim()) {
-      updatePassword(id, np.trim());
-      toast.success("Password diperbarui");
-    }
-  };
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Tambah Mahasiswa
-          </CardTitle>
-          <CardDescription>Akun login otomatis dibuat (username = NIM)</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Input placeholder="NIM" value={nim} onChange={(e) => setNim(e.target.value)} />
-          <Input
-            placeholder="Nama lengkap"
-            value={nama}
-            onChange={(e) => setNama(e.target.value)}
-          />
-          <Button onClick={handleAdd} className="w-full">
-            Tambah
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={() => {
-              if (confirm("Reset ke 30 mahasiswa default? Akun lama akan diganti.")) {
-                resetDefault();
-                toast.success("Daftar direset");
-              }
-            }}
-          >
-            Reset ke default (30)
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Users className="h-4 w-4" /> Daftar Mahasiswa ({students.length})
-          </CardTitle>
-          <CardDescription>Password awal sama dengan NIM</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="divide-y">
-            {students.map((m, i) => {
-              const u = userByStudent.get(m.id);
-              return (
-                <div key={m.id} className="flex items-center justify-between gap-2 py-2.5">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs text-muted-foreground">
-                      {i + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">{m.nama}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{m.nim}</p>
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 gap-1">
-                    {u && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleResetPwd(u.id, m.nim)}
-                        className="text-xs"
-                      >
-                        <KeyRound className="h-3.5 w-3.5" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeStudent(m.id)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-function KelolaDosen() {
-  const { users, addUser, removeUser, updatePassword } = useUsers();
-  const [username, setUsername] = useState("");
-  const [nama, setNama] = useState("");
-  const [password, setPassword] = useState("");
-
-  const dosens = users.filter((u) => u.role === "dosen");
-
-  const handleAdd = () => {
-    if (!username.trim() || !nama.trim() || !password.trim())
-      return toast.error("Semua kolom wajib diisi");
+  const handleCreate = async () => {
+    setBusy(true);
     try {
-      addUser({ username, nama: nama.trim(), password, role: "dosen" });
-      toast.success("Dosen ditambahkan");
-      setUsername("");
-      setNama("");
-      setPassword("");
+      await create({
+        data: {
+          nama: form.nama,
+          username: form.username || form.nim,
+          password: form.password,
+          role,
+          nim: role === "mahasiswa" ? form.nim : null,
+        },
+      });
+      toast.success("Akun dibuat");
+      setOpen(false);
+      setForm({ nama: "", username: "", nim: "", password: "" });
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal");
+    } finally { setBusy(false); }
+  };
+
+  const handleReset = async () => {
+    if (!resetFor) return;
+    setBusy(true);
+    try {
+      await reset({ data: { userId: resetFor, password: newPw } });
+      toast.success("Password berhasil direset");
+      setResetFor(null); setNewPw("");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal");
+    } finally { setBusy(false); }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm("Hapus akun ini?")) return;
+    try {
+      await del({ data: { userId: id } });
+      toast.success("Akun dihapus");
+      onChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal");
     }
   };
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Tambah Dosen
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <Input placeholder="Username" value={username} onChange={(e) => setUsername(e.target.value)} />
-          <Input placeholder="Nama lengkap" value={nama} onChange={(e) => setNama(e.target.value)} />
-          <Input
-            placeholder="Password"
-            type="text"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
-          <Button onClick={handleAdd} className="w-full">
-            Tambah
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <GraduationCap className="h-4 w-4" /> Daftar Dosen ({dosens.length})
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          {dosens.length === 0 && (
-            <p className="text-sm text-muted-foreground">Belum ada akun dosen.</p>
-          )}
-          <div className="divide-y">
-            {dosens.map((d) => (
-              <div key={d.id} className="flex items-center justify-between py-2.5">
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <ShieldCheck className="h-4 w-4" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{d.nama}</p>
-                    <p className="font-mono text-xs text-muted-foreground">{d.username}</p>
-                  </div>
-                </div>
-                <div className="flex shrink-0 gap-1">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      const np = prompt("Password baru untuk " + d.username);
-                      if (np && np.trim()) {
-                        updatePassword(d.id, np.trim());
-                        toast.success("Password diperbarui");
-                      }
-                    }}
-                  >
-                    <KeyRound className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => {
-                      try {
-                        removeUser(d.id);
-                        toast.success("Dosen dihapus");
-                      } catch (e) {
-                        toast.error(e instanceof Error ? e.message : "Gagal");
-                      }
-                    }}
-                    className="text-muted-foreground hover:text-destructive"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* ============== DOSEN ============== */
-
-function DosenPanel() {
-  const { sessions, createSession, setStatus, closeSession, reopenSession, deleteSession } =
-    useSessions();
-  const { students } = useStudents();
-  const [judul, setJudul] = useState("");
-  const [activeId, setActiveId] = useState<string | null>(null);
-
-  const active = useMemo(
-    () => sessions.find((s) => s.id === (activeId ?? sessions[0]?.id)) ?? null,
-    [sessions, activeId],
-  );
-
-  const handleCreate = () => {
-    if (!judul.trim()) return toast.error("Masukkan judul sesi terlebih dahulu");
-    const s = createSession(judul.trim());
-    setActiveId(s.id);
-    setJudul("");
-    toast.success(`Sesi dibuat. Kode: ${s.kode}`);
-  };
-
-  return (
-    <div className="grid gap-6 lg:grid-cols-[360px_1fr]">
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Buat Sesi Baru</CardTitle>
-            <CardDescription>Mahasiswa menggunakan kode untuk absen</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <Input
-              placeholder="cth. Pertemuan 5 — Algoritma"
-              value={judul}
-              onChange={(e) => setJudul(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-            />
-            <Button onClick={handleCreate} className="w-full gap-2">
-              <Plus className="h-4 w-4" /> Buat Sesi
-            </Button>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Riwayat Sesi</CardTitle>
-            <CardDescription>{sessions.length} sesi tersimpan</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {sessions.length === 0 && (
-              <p className="text-sm text-muted-foreground">Belum ada sesi.</p>
-            )}
-            {sessions.map((s) => {
-              const total = Object.keys(s.attendance).length;
-              const isActive = active?.id === s.id;
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => setActiveId(s.id)}
-                  className={`w-full rounded-lg border p-3 text-left transition ${
-                    isActive
-                      ? "border-primary bg-accent shadow-[var(--shadow-card)]"
-                      : "hover:bg-accent/50"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-sm">{s.judul}</span>
-                    <span className="font-mono text-xs text-primary">{s.kode}</span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{new Date(s.createdAt).toLocaleString("id-ID")}</span>
-                    <span>
-                      {total}/{students.length} {s.closed && "• ditutup"}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </CardContent>
-        </Card>
-      </div>
-
-      <div>
-        {active ? (
-          <SessionDetail
-            session={active}
-            students={students}
-            onSetStatus={(sid, st) => setStatus(active.id, sid, st)}
-            onClose={() => closeSession(active.id)}
-            onReopen={() => reopenSession(active.id)}
-            onDelete={() => {
-              deleteSession(active.id);
-              setActiveId(null);
-              toast.success("Sesi dihapus");
-            }}
-          />
-        ) : (
-          <Card className="border-dashed">
-            <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-              <CalendarCheck className="h-8 w-8" />
-              <p className="font-medium">Belum ada sesi aktif</p>
-              <p className="text-sm">Buat sesi baru untuk memulai absensi.</p>
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function SessionDetail({
-  session,
-  students,
-  onSetStatus,
-  onClose,
-  onReopen,
-  onDelete,
-}: {
-  session: ReturnType<typeof useSessions>["sessions"][number];
-  students: ReturnType<typeof useStudents>["students"];
-  onSetStatus: (sid: string, st: Status) => void;
-  onClose: () => void;
-  onReopen: () => void;
-  onDelete: () => void;
-}) {
-  const counts = STATUS_LIST.reduce(
-    (acc, st) => ({
-      ...acc,
-      [st]: Object.values(session.attendance).filter((v) => v === st).length,
-    }),
-    {} as Record<Status, number>,
-  );
-
-  return (
-    <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <div
-          className="px-6 py-5 text-primary-foreground"
-          style={{ background: "var(--gradient-primary)" }}
-        >
-          <p className="text-xs uppercase tracking-wider opacity-80">Sesi Aktif</p>
-          <h2 className="mt-1 text-xl font-semibold">{session.judul}</h2>
-          <div className="mt-3 flex flex-wrap items-center gap-3">
-            <div className="rounded-lg bg-white/15 px-3 py-1.5 backdrop-blur">
-              <span className="text-xs opacity-80">Kode: </span>
-              <span className="font-mono text-lg font-bold tracking-widest">{session.kode}</span>
-            </div>
-            <span className="text-xs opacity-80">
-              {new Date(session.createdAt).toLocaleString("id-ID")}
-            </span>
-            {session.closed && (
-              <span className="rounded-full bg-white/20 px-2 py-0.5 text-xs">Ditutup</span>
-            )}
-          </div>
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <div>
+          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5"/>{title}</CardTitle>
+          <CardDescription>{users.length} akun</CardDescription>
         </div>
-        <CardContent className="grid grid-cols-2 gap-3 py-4 sm:grid-cols-4">
-          {STATUS_LIST.map((st) => (
-            <div key={st} className="rounded-lg border bg-card p-3 text-center">
-              <p className="text-xs text-muted-foreground">{st}</p>
-              <p className="mt-1 text-2xl font-semibold">{counts[st]}</p>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button size="sm" className="gap-1"><Plus className="h-4 w-4"/>Tambah</Button>
+          </DialogTrigger>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Tambah {ROLE_LABEL[role]}</DialogTitle>
+              <DialogDescription>Admin menentukan password awal.</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3">
+              <Input placeholder="Nama" value={form.nama} onChange={(e)=>setForm({...form, nama: e.target.value})}/>
+              {role === "mahasiswa" && (
+                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value, username: e.target.value})}/>
+              )}
+              <Input placeholder="Username" value={form.username} onChange={(e)=>setForm({...form, username: e.target.value})}/>
+              <Input type="password" placeholder="Password (min 6)" value={form.password} onChange={(e)=>setForm({...form, password: e.target.value})}/>
+            </div>
+            <DialogFooter>
+              <Button disabled={busy} onClick={handleCreate}>{busy ? "Memproses..." : "Buat"}</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </CardHeader>
+      <CardContent>
+        <div className="divide-y rounded-md border">
+          {users.length === 0 && (
+            <p className="p-4 text-center text-sm text-muted-foreground">Belum ada akun.</p>
+          )}
+          {users.map((u) => (
+            <div key={u.id} className="flex items-center justify-between gap-2 p-3">
+              <div>
+                <p className="text-sm font-medium">{u.nama}</p>
+                <p className="text-xs text-muted-foreground">
+                  @{u.username}{u.nim ? ` · NIM ${u.nim}` : ""}
+                </p>
+              </div>
+              <div className="flex gap-1">
+                <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setResetFor(u.id); setNewPw("");}}>
+                  <KeyRound className="h-3.5 w-3.5"/>Reset
+                </Button>
+                {u.id !== currentUserId && (
+                  <Button size="sm" variant="ghost" onClick={()=>handleDelete(u.id)}>
+                    <Trash2 className="h-4 w-4 text-destructive"/>
+                  </Button>
+                )}
+              </div>
             </div>
           ))}
+        </div>
+      </CardContent>
+
+      <Dialog open={!!resetFor} onOpenChange={(o)=>!o && setResetFor(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+            <DialogDescription>Atur password baru untuk akun ini.</DialogDescription>
+          </DialogHeader>
+          <Input type="password" placeholder="Password baru (min 6)" value={newPw} onChange={(e)=>setNewPw(e.target.value)} />
+          <DialogFooter>
+            <Button disabled={busy || newPw.length < 6} onClick={handleReset}>Simpan</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
+
+// ---------- Dosen ----------
+function DosenPanel({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const sessions = useQuery({
+    queryKey: ["sessions"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("attendance_sessions")
+        .select("*")
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+  const [judul, setJudul] = useState("");
+  const [active, setActive] = useState<string | null>(null);
+
+  const create = async () => {
+    if (!judul.trim()) return;
+    const kode = crypto.randomUUID().slice(0, 8).toUpperCase();
+    const { data, error } = await supabase
+      .from("attendance_sessions")
+      .insert({ judul: judul.trim(), kode, created_by: userId })
+      .select()
+      .single();
+    if (error) return toast.error(error.message);
+    toast.success("Sesi dibuat");
+    setJudul("");
+    setActive(data.id);
+    qc.invalidateQueries({ queryKey: ["sessions"] });
+  };
+
+  const toggle = async (id: string, closed: boolean) => {
+    await supabase.from("attendance_sessions").update({ closed: !closed }).eq("id", id);
+    qc.invalidateQueries({ queryKey: ["sessions"] });
+  };
+  const remove = async (id: string) => {
+    if (!confirm("Hapus sesi ini beserta semua absensinya?")) return;
+    await supabase.from("attendance_sessions").delete().eq("id", id);
+    qc.invalidateQueries({ queryKey: ["sessions"] });
+    if (active === id) setActive(null);
+  };
+
+  const activeSession = sessions.data?.find((s) => s.id === active);
+
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2"><QrCode className="h-5 w-5"/>Buat Sesi Baru</CardTitle>
+          <CardDescription>Judul matakuliah / pertemuan</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Input placeholder="Contoh: Algoritma — Pertemuan 5" value={judul} onChange={(e)=>setJudul(e.target.value)}/>
+          <Button onClick={create} className="w-full gap-1"><Plus className="h-4 w-4"/>Buat & Tampilkan QR</Button>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base">Daftar Mahasiswa</CardTitle>
-            <CardDescription>Klik status untuk menandai kehadiran</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            {session.closed ? (
-              <Button variant="outline" size="sm" onClick={onReopen} className="gap-1.5">
-                <RotateCcw className="h-3.5 w-3.5" /> Buka lagi
-              </Button>
-            ) : (
-              <Button variant="outline" size="sm" onClick={onClose} className="gap-1.5">
-                <CheckCircle2 className="h-3.5 w-3.5" /> Tutup sesi
-              </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={onDelete}
-              className="gap-1.5 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Hapus
-            </Button>
-          </div>
+        <CardHeader>
+          <CardTitle>Riwayat Sesi</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="divide-y">
-            {students.map((m, idx) => {
-              const cur = session.attendance[m.id];
-              return (
-                <div
-                  key={m.id}
-                  className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground">
-                      {idx + 1}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium text-sm">{m.nama}</p>
-                      <p className="font-mono text-xs text-muted-foreground">{m.nim}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {STATUS_LIST.map((st) => (
-                      <button
-                        key={st}
-                        onClick={() => onSetStatus(m.id, st)}
-                        disabled={session.closed}
-                        className={`rounded-md border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
-                          cur === st
-                            ? "border-primary bg-primary text-primary-foreground"
-                            : "border-border bg-background hover:bg-accent"
-                        }`}
-                      >
-                        {st}
-                      </button>
-                    ))}
-                    {cur && <StatusBadge status={cur} className="ml-1" />}
-                  </div>
+          <div className="max-h-72 divide-y overflow-y-auto rounded-md border">
+            {(sessions.data ?? []).length === 0 && (
+              <p className="p-4 text-center text-sm text-muted-foreground">Belum ada sesi.</p>
+            )}
+            {(sessions.data ?? []).map((s) => (
+              <button
+                key={s.id}
+                onClick={()=>setActive(s.id)}
+                className={`flex w-full items-center justify-between p-3 text-left hover:bg-muted/50 ${active===s.id?"bg-muted/40":""}`}
+              >
+                <div>
+                  <p className="text-sm font-medium">{s.judul}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {new Date(s.created_at).toLocaleString("id-ID")} · {s.closed ? "Ditutup" : "Aktif"}
+                  </p>
                 </div>
-              );
-            })}
+              </button>
+            ))}
           </div>
         </CardContent>
       </Card>
+
+      {activeSession && (
+        <Card className="md:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>{activeSession.judul}</CardTitle>
+              <CardDescription>QR untuk ditampilkan ke kelas</CardDescription>
+            </div>
+            <div className="flex gap-1">
+              <Button size="sm" variant="outline" onClick={()=>toggle(activeSession.id, activeSession.closed)}>
+                {activeSession.closed ? "Buka Kembali" : "Tutup Sesi"}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={()=>remove(activeSession.id)}>
+                <Trash2 className="h-4 w-4 text-destructive"/>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="grid gap-6 md:grid-cols-[auto,1fr]">
+            <div className="flex flex-col items-center gap-2 rounded-lg border bg-white p-6">
+              <QRCodeSVG value={activeSession.kode} size={240} level="M" />
+              <p className="text-xs text-muted-foreground">Kode manual:</p>
+              <code className="rounded bg-muted px-2 py-1 text-sm font-bold tracking-wider">{activeSession.kode}</code>
+            </div>
+            <SessionAttendanceList sessionId={activeSession.id} canEdit />
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-/* ============== MAHASISWA ============== */
+function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canEdit?: boolean }) {
+  const qc = useQueryClient();
+  const data = useQuery({
+    queryKey: ["session-att", sessionId],
+    queryFn: async () => {
+      const [{ data: students }, { data: roles }, { data: atts }] = await Promise.all([
+        supabase.from("profiles").select("id, nama, nim"),
+        supabase.from("user_roles").select("user_id, role").eq("role", "mahasiswa"),
+        supabase.from("attendances").select("*").eq("session_id", sessionId),
+      ]);
+      const studentIds = new Set((roles ?? []).map((r) => r.user_id));
+      const list = (students ?? []).filter((s) => studentIds.has(s.id));
+      const attMap = new Map((atts ?? []).map((a) => [a.student_id, a]));
+      return { list, attMap };
+    },
+  });
 
-function MahasiswaPanel() {
-  const { current } = useAuth();
-  const { sessions, setStatus } = useSessions();
-  const [kode, setKode] = useState("");
-  const [status, setStatusVal] = useState<Status>("Hadir");
+  const setStatus = async (studentId: string, status: Status) => {
+    const { error } = await supabase
+      .from("attendances")
+      .upsert({ session_id: sessionId, student_id: studentId, status }, { onConflict: "session_id,student_id" });
+    if (error) return toast.error(error.message);
+    qc.invalidateQueries({ queryKey: ["session-att", sessionId] });
+  };
 
-  const myAttendance = useMemo(() => {
-    if (!current?.studentId) return [];
-    return sessions
-      .filter((s) => s.attendance[current.studentId!])
-      .map((s) => ({ s, status: s.attendance[current.studentId!] }));
-  }, [sessions, current]);
+  if (!data.data) return <p className="text-sm text-muted-foreground">Memuat...</p>;
+  const counts = STATUS_LIST.reduce<Record<Status, number>>((acc, s) => {
+    acc[s] = 0; return acc;
+  }, { Hadir: 0, Izin: 0, Sakit: 0, Alpa: 0 });
+  data.data.list.forEach((s) => {
+    const st = data.data.attMap.get(s.id)?.status as Status | undefined;
+    if (st) counts[st]++;
+  });
 
-  const handleSubmit = () => {
-    if (!current?.studentId) return toast.error("Akun mahasiswa tidak terhubung dengan data");
-    const s = findByKode(sessions, kode);
-    if (!s) return toast.error("Kode sesi tidak ditemukan");
-    if (s.closed) return toast.error("Sesi sudah ditutup");
-    setStatus(s.id, current.studentId, status);
-    toast.success(`Absensi tercatat: ${status}`);
-    setKode("");
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2 text-xs">
+        {STATUS_LIST.map((s) => (
+          <div key={s} className="rounded-md border px-2 py-1"><StatusBadge status={s}/> <span className="ml-1 font-semibold">{counts[s]}</span></div>
+        ))}
+      </div>
+      <div className="max-h-80 divide-y overflow-y-auto rounded-md border">
+        {data.data.list.map((s) => {
+          const cur = data.data.attMap.get(s.id)?.status as Status | undefined;
+          return (
+            <div key={s.id} className="flex items-center justify-between gap-2 p-2 text-sm">
+              <div>
+                <p className="font-medium">{s.nama}</p>
+                <p className="text-xs text-muted-foreground">{s.nim ?? "—"}</p>
+              </div>
+              {canEdit ? (
+                <div className="flex gap-1">
+                  {STATUS_LIST.map((st) => (
+                    <button
+                      key={st}
+                      onClick={()=>setStatus(s.id, st)}
+                      className={`rounded px-2 py-0.5 text-xs ${cur===st?"ring-2 ring-primary":""}`}
+                    >
+                      <StatusBadge status={st}/>
+                    </button>
+                  ))}
+                </div>
+              ) : cur ? <StatusBadge status={cur}/> : <span className="text-xs text-muted-foreground">Belum</span>}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Mahasiswa ----------
+function MahasiswaPanel({ userId }: { userId: string }) {
+  const qc = useQueryClient();
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [manualKode, setManualKode] = useState("");
+  const [izinOpen, setIzinOpen] = useState(false);
+  const [izinSessionId, setIzinSessionId] = useState<string>("");
+  const [izinStatus, setIzinStatus] = useState<Status>("Izin");
+  const [izinKet, setIzinKet] = useState("");
+
+  const history = useQuery({
+    queryKey: ["my-att", userId],
+    queryFn: async () => {
+      const { data: atts } = await supabase
+        .from("attendances")
+        .select("*, attendance_sessions(judul, created_at)")
+        .eq("student_id", userId)
+        .order("created_at", { ascending: false });
+      return atts ?? [];
+    },
+  });
+
+  const openSessions = useQuery({
+    queryKey: ["open-sessions"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("attendance_sessions")
+        .select("id, judul")
+        .eq("closed", false)
+        .order("created_at", { ascending: false });
+      return data ?? [];
+    },
+  });
+
+  const submitHadir = async (kode: string) => {
+    const trimmed = kode.trim().toUpperCase();
+    if (!trimmed) return;
+    const { data: ses, error: sErr } = await supabase
+      .from("attendance_sessions")
+      .select("id, judul, closed")
+      .eq("kode", trimmed)
+      .maybeSingle();
+    if (sErr || !ses) return toast.error("Sesi tidak ditemukan");
+    if (ses.closed) return toast.error("Sesi sudah ditutup");
+    const { error } = await supabase
+      .from("attendances")
+      .upsert(
+        { session_id: ses.id, student_id: userId, status: "Hadir" },
+        { onConflict: "session_id,student_id" },
+      );
+    if (error) return toast.error(error.message);
+    toast.success(`Hadir untuk: ${ses.judul}`);
+    qc.invalidateQueries({ queryKey: ["my-att", userId] });
+  };
+
+  const submitIzin = async () => {
+    if (!izinSessionId) return toast.error("Pilih sesi");
+    const { error } = await supabase
+      .from("attendances")
+      .upsert(
+        { session_id: izinSessionId, student_id: userId, status: izinStatus, keterangan: izinKet || null },
+        { onConflict: "session_id,student_id" },
+      );
+    if (error) return toast.error(error.message);
+    toast.success("Diajukan");
+    setIzinOpen(false); setIzinKet(""); setIzinSessionId("");
+    qc.invalidateQueries({ queryKey: ["my-att", userId] });
   };
 
   return (
-    <div className="mx-auto grid max-w-xl gap-6">
+    <div className="grid gap-4 md:grid-cols-2">
       <Card>
         <CardHeader>
-          <div className="mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-            <KeyRound className="h-6 w-6" />
-          </div>
-          <CardTitle>Absen dengan Kode Sesi</CardTitle>
-          <CardDescription>
-            Masuk sebagai <span className="font-medium text-foreground">{current?.nama}</span> ·{" "}
-            {current?.nim}
-          </CardDescription>
+          <CardTitle className="flex items-center gap-2"><ScanLine className="h-5 w-5"/>Scan QR Absen</CardTitle>
+          <CardDescription>Arahkan kamera ke QR yang ditampilkan dosen.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Kode Sesi</label>
-            <Input
-              placeholder="cth. ABC123"
-              value={kode}
-              onChange={(e) => setKode(e.target.value.toUpperCase())}
-              className="font-mono text-lg tracking-widest uppercase"
-              maxLength={10}
+        <CardContent className="space-y-3">
+          {!scannerOpen ? (
+            <Button className="w-full gap-1" onClick={()=>setScannerOpen(true)}>
+              <ScanLine className="h-4 w-4"/>Buka Kamera
+            </Button>
+          ) : (
+            <QrScanner
+              onResult={async (text) => {
+                setScannerOpen(false);
+                await submitHadir(text);
+              }}
+              onClose={()=>setScannerOpen(false)}
             />
+          )}
+          <div className="text-center text-xs text-muted-foreground">atau masukkan kode manual</div>
+          <div className="flex gap-2">
+            <Input placeholder="Kode sesi" value={manualKode} onChange={(e)=>setManualKode(e.target.value)} />
+            <Button variant="outline" onClick={()=>{ submitHadir(manualKode); setManualKode(""); }}>
+              <CheckCircle2 className="h-4 w-4"/>
+            </Button>
           </div>
-          <div>
-            <label className="mb-1.5 block text-sm font-medium">Status</label>
-            <div className="grid grid-cols-4 gap-2">
-              {STATUS_LIST.map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setStatusVal(st)}
-                  className={`rounded-md border px-2 py-2 text-sm font-medium transition ${
-                    status === st
-                      ? "border-primary bg-primary text-primary-foreground"
-                      : "border-border bg-background hover:bg-accent"
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-          </div>
-          <Button onClick={handleSubmit} className="w-full" size="lg">
-            Kirim Absensi
-          </Button>
+
+          <Dialog open={izinOpen} onOpenChange={setIzinOpen}>
+            <DialogTrigger asChild>
+              <Button variant="ghost" className="w-full">Ajukan Izin / Sakit</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Izin / Sakit</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <Select value={izinSessionId} onValueChange={setIzinSessionId}>
+                  <SelectTrigger><SelectValue placeholder="Pilih sesi aktif"/></SelectTrigger>
+                  <SelectContent>
+                    {openSessions.data?.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>{s.judul}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={izinStatus} onValueChange={(v)=>setIzinStatus(v as Status)}>
+                  <SelectTrigger><SelectValue/></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Izin">Izin</SelectItem>
+                    <SelectItem value="Sakit">Sakit</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input placeholder="Keterangan (opsional)" value={izinKet} onChange={(e)=>setIzinKet(e.target.value)}/>
+              </div>
+              <DialogFooter><Button onClick={submitIzin}>Kirim</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Riwayat Absensi Saya</CardTitle>
-          <CardDescription>{myAttendance.length} sesi</CardDescription>
+          <CardTitle>Riwayat Absensi Saya</CardTitle>
         </CardHeader>
         <CardContent>
-          {myAttendance.length === 0 && (
-            <p className="text-sm text-muted-foreground">Belum ada absensi.</p>
-          )}
-          <div className="divide-y">
-            {myAttendance.map(({ s, status }) => (
-              <div key={s.id} className="flex items-center justify-between py-2.5">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{s.judul}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {new Date(s.createdAt).toLocaleString("id-ID")}
-                  </p>
+          <div className="max-h-96 divide-y overflow-y-auto rounded-md border">
+            {(history.data ?? []).length === 0 && (
+              <p className="p-4 text-center text-sm text-muted-foreground">Belum ada absensi.</p>
+            )}
+            {(history.data ?? []).map((a: any) => (
+              <div key={a.id} className="flex items-center justify-between p-3 text-sm">
+                <div>
+                  <p className="font-medium">{a.attendance_sessions?.judul ?? "—"}</p>
+                  <p className="text-xs text-muted-foreground">{new Date(a.created_at).toLocaleString("id-ID")}</p>
+                  {a.keterangan && <p className="text-xs italic text-muted-foreground">{a.keterangan}</p>}
                 </div>
-                <StatusBadge status={status} />
+                <StatusBadge status={a.status as Status}/>
               </div>
             ))}
           </div>
@@ -675,4 +652,3 @@ function MahasiswaPanel() {
     </div>
   );
 }
-
