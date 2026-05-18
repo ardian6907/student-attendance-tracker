@@ -332,7 +332,7 @@ function DosenPanel({ userId }: { userId: string }) {
 
   const create = async () => {
     if (!judul.trim()) return;
-    const kode = crypto.randomUUID();
+    const kode = crypto.randomUUID().slice(0, 8).toUpperCase();
     const { data, error } = await supabase
       .from("attendance_sessions")
       .insert({ judul: judul.trim(), kode, created_by: userId })
@@ -417,8 +417,8 @@ function DosenPanel({ userId }: { userId: string }) {
           <CardContent className="grid gap-6 md:grid-cols-[auto,1fr]">
             <div className="flex flex-col items-center gap-2 rounded-lg border bg-white p-6">
               <QRCodeSVG value={activeSession.kode} size={240} level="M" />
-              <p className="text-xs text-muted-foreground">Kode fallback:</p>
-              <code className="rounded bg-muted px-2 py-1 text-xs">{activeSession.kode.slice(0, 8)}</code>
+              <p className="text-xs text-muted-foreground">Kode manual:</p>
+              <code className="rounded bg-muted px-2 py-1 text-sm font-bold tracking-wider">{activeSession.kode}</code>
             </div>
             <SessionAttendanceList sessionId={activeSession.id} canEdit />
           </CardContent>
@@ -534,12 +534,12 @@ function MahasiswaPanel({ userId }: { userId: string }) {
   });
 
   const submitHadir = async (kode: string) => {
-    const trimmed = kode.trim();
+    const trimmed = kode.trim().toUpperCase();
     if (!trimmed) return;
     const { data: ses, error: sErr } = await supabase
       .from("attendance_sessions")
       .select("id, judul, closed")
-      .or(`kode.eq.${trimmed},kode.ilike.${trimmed}%`)
+      .eq("kode", trimmed)
       .maybeSingle();
     if (sErr || !ses) return toast.error("Sesi tidak ditemukan");
     if (ses.closed) return toast.error("Sesi sudah ditutup");
