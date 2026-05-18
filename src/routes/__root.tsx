@@ -72,14 +72,18 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
+      { title: "Absensi 1" },
+      { name: "description", content: "Student Attendance Tracker simplifies student attendance management with secure login and barcode scanning." },
       { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { property: "og:title", content: "Absensi 1" },
+      { property: "og:description", content: "Student Attendance Tracker simplifies student attendance management with secure login and barcode scanning." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:title", content: "Absensi 1" },
+      { name: "twitter:description", content: "Student Attendance Tracker simplifies student attendance management with secure login and barcode scanning." },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/99a9c1cb-9b4a-484a-a3fe-cb662da9d2ef/id-preview-61c52da3--e10d9aa6-fea0-4f3e-94e7-01e7cdef5fdf.lovable.app-1779087929999.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/99a9c1cb-9b4a-484a-a3fe-cb662da9d2ef/id-preview-61c52da3--e10d9aa6-fea0-4f3e-94e7-01e7cdef5fdf.lovable.app-1779087929999.png" },
     ],
     links: [
       {
