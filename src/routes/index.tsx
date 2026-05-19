@@ -260,11 +260,12 @@ function UserManager({
             <div className="space-y-3">
               <Input placeholder="Nama" value={form.nama} onChange={(e)=>setForm({...form, nama: e.target.value})}/>
               {role === "mahasiswa" && (
-                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value, username: e.target.value})}/>
+                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value})}/>
               )}
-              <Input placeholder="Username" value={form.username} onChange={(e)=>setForm({...form, username: e.target.value})}/>
+              <Input type="email" placeholder="Email" value={form.email} onChange={(e)=>setForm({...form, email: e.target.value})}/>
               <Input type="password" placeholder="Password (min 6)" value={form.password} onChange={(e)=>setForm({...form, password: e.target.value})}/>
             </div>
+
             <DialogFooter>
               <Button disabled={busy} onClick={handleCreate}>{busy ? "Memproses..." : "Buat"}</Button>
             </DialogFooter>
