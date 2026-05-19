@@ -191,7 +191,7 @@ function UserManager({
   const reset = useServerFn(adminResetPassword);
 
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ nama: "", username: "", nim: "", password: "" });
+  const [form, setForm] = useState({ nama: "", email: "", nim: "", password: "" });
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
   const [busy, setBusy] = useState(false);
@@ -202,7 +202,7 @@ function UserManager({
       await create({
         data: {
           nama: form.nama,
-          username: form.username || form.nim,
+          email: form.email.trim(),
           password: form.password,
           role,
           nim: role === "mahasiswa" ? form.nim : null,
@@ -210,12 +210,13 @@ function UserManager({
       });
       toast.success("Akun dibuat");
       setOpen(false);
-      setForm({ nama: "", username: "", nim: "", password: "" });
+      setForm({ nama: "", email: "", nim: "", password: "" });
       onChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal");
     } finally { setBusy(false); }
   };
+
 
   const handleReset = async () => {
     if (!resetFor) return;
@@ -259,11 +260,12 @@ function UserManager({
             <div className="space-y-3">
               <Input placeholder="Nama" value={form.nama} onChange={(e)=>setForm({...form, nama: e.target.value})}/>
               {role === "mahasiswa" && (
-                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value, username: e.target.value})}/>
+                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value})}/>
               )}
-              <Input placeholder="Username" value={form.username} onChange={(e)=>setForm({...form, username: e.target.value})}/>
+              <Input type="email" placeholder="Email" value={form.email} onChange={(e)=>setForm({...form, email: e.target.value})}/>
               <Input type="password" placeholder="Password (min 6)" value={form.password} onChange={(e)=>setForm({...form, password: e.target.value})}/>
             </div>
+
             <DialogFooter>
               <Button disabled={busy} onClick={handleCreate}>{busy ? "Memproses..." : "Buat"}</Button>
             </DialogFooter>
@@ -279,10 +281,11 @@ function UserManager({
             <div key={u.id} className="flex items-center justify-between gap-2 p-3">
               <div>
                 <p className="text-sm font-medium">{u.nama}</p>
-                <p className="text-xs text-muted-foreground">
-                  @{u.username}{u.nim ? ` · NIM ${u.nim}` : ""}
-                </p>
+                {u.nim && (
+                  <p className="text-xs text-muted-foreground">NIM {u.nim}</p>
+                )}
               </div>
+
               <div className="flex gap-1">
                 <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setResetFor(u.id); setNewPw("");}}>
                   <KeyRound className="h-3.5 w-3.5"/>Reset
