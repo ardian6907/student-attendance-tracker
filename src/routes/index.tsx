@@ -495,7 +495,8 @@ function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canE
                   {STATUS_LIST.map((st) => (
                     <button
                       key={st}
-                      onClick={()=>setStatus(s.id, st)}
+                      onClick={()=>setStatus(s.id, st, cur)}
+                      title={cur===st ? "Klik lagi untuk membatalkan" : undefined}
                       className={`rounded px-2 py-0.5 text-xs ${cur===st?"ring-2 ring-primary":""}`}
                     >
                       <StatusBadge status={st}/>
