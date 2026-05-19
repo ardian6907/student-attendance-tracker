@@ -70,12 +70,11 @@ export const ensureBootstrapAdmin = createServerFn({ method: "POST" }).handler(
 );
 
 const createUserSchema = z.object({
-  username: z.string().min(2).max(60).regex(/^[a-zA-Z0-9_.-]+$/),
+  email: z.string().email(),
   nama: z.string().min(1).max(120),
   password: z.string().min(6).max(120),
   role: z.enum(["admin", "dosen", "mahasiswa"]),
   nim: z.string().max(40).optional().nullable(),
-  email: z.string().email().optional().nullable(),
 });
 
 export const adminCreateUser = createServerFn({ method: "POST" })
@@ -83,21 +82,21 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   .inputValidator((input) => createUserSchema.parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
-    const email =
-      data.email?.trim() ||
-      `${(data.nim?.trim() || data.username).toLowerCase()}@${EMAIL_DOMAIN}`;
+    const email = data.email.trim().toLowerCase();
+    // derive a username from email local part (kept for legacy NOT NULL column)
+    const username = email.split("@")[0].replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 60) || "user";
 
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password: data.password,
       email_confirm: true,
-      user_metadata: { nama: data.nama, username: data.username },
+      user_metadata: { nama: data.nama, username },
     });
     if (error || !created.user) throw new Error(error?.message ?? "Gagal membuat user");
 
     const { error: pErr } = await supabaseAdmin.from("profiles").insert({
       id: created.user.id,
-      username: data.username,
+      username,
       nama: data.nama,
       nim: data.nim || null,
     });
@@ -113,6 +112,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
 
     return { id: created.user.id, email };
   });
+
 
 export const adminResetPassword = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
