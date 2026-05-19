@@ -191,7 +191,7 @@ function UserManager({
   const reset = useServerFn(adminResetPassword);
 
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ nama: "", username: "", nim: "", password: "" });
+  const [form, setForm] = useState({ nama: "", email: "", nim: "", password: "" });
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
   const [busy, setBusy] = useState(false);
@@ -202,7 +202,7 @@ function UserManager({
       await create({
         data: {
           nama: form.nama,
-          username: form.username || form.nim,
+          email: form.email.trim(),
           password: form.password,
           role,
           nim: role === "mahasiswa" ? form.nim : null,
@@ -210,12 +210,13 @@ function UserManager({
       });
       toast.success("Akun dibuat");
       setOpen(false);
-      setForm({ nama: "", username: "", nim: "", password: "" });
+      setForm({ nama: "", email: "", nim: "", password: "" });
       onChanged();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Gagal");
     } finally { setBusy(false); }
   };
+
 
   const handleReset = async () => {
     if (!resetFor) return;
