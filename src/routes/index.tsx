@@ -281,10 +281,11 @@ function UserManager({
             <div key={u.id} className="flex items-center justify-between gap-2 p-3">
               <div>
                 <p className="text-sm font-medium">{u.nama}</p>
-                <p className="text-xs text-muted-foreground">
-                  @{u.username}{u.nim ? ` · NIM ${u.nim}` : ""}
-                </p>
+                {u.nim && (
+                  <p className="text-xs text-muted-foreground">NIM {u.nim}</p>
+                )}
               </div>
+
               <div className="flex gap-1">
                 <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setResetFor(u.id); setNewPw("");}}>
                   <KeyRound className="h-3.5 w-3.5"/>Reset
