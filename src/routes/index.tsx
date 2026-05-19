@@ -448,11 +448,20 @@ function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canE
     },
   });
 
-  const setStatus = async (studentId: string, status: Status) => {
-    const { error } = await supabase
-      .from("attendances")
-      .upsert({ session_id: sessionId, student_id: studentId, status }, { onConflict: "session_id,student_id" });
-    if (error) return toast.error(error.message);
+  const setStatus = async (studentId: string, status: Status, current: Status | undefined) => {
+    if (current === status) {
+      const { error } = await supabase
+        .from("attendances")
+        .delete()
+        .eq("session_id", sessionId)
+        .eq("student_id", studentId);
+      if (error) return toast.error(error.message);
+    } else {
+      const { error } = await supabase
+        .from("attendances")
+        .upsert({ session_id: sessionId, student_id: studentId, status }, { onConflict: "session_id,student_id" });
+      if (error) return toast.error(error.message);
+    }
     qc.invalidateQueries({ queryKey: ["session-att", sessionId] });
   };
 
@@ -486,7 +495,8 @@ function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canE
                   {STATUS_LIST.map((st) => (
                     <button
                       key={st}
-                      onClick={()=>setStatus(s.id, st)}
+                      onClick={()=>setStatus(s.id, st, cur)}
+                      title={cur===st ? "Klik lagi untuk membatalkan" : undefined}
                       className={`rounded px-2 py-0.5 text-xs ${cur===st?"ring-2 ring-primary":""}`}
                     >
                       <StatusBadge status={st}/>
