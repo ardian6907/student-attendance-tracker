@@ -6,15 +6,14 @@ import { CalendarCheck, LogIn } from "lucide-react";
 import { toast } from "sonner";
 import { useServerFn } from "@tanstack/react-start";
 import { supabase } from "@/integrations/supabase/client";
-import { ensureBootstrapAdmin, resolveLoginEmail } from "@/lib/admin.functions";
+import { ensureBootstrapAdmin } from "@/lib/admin.functions";
 
 export function LoginForm() {
-  const [identifier, setIdentifier] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [hint, setHint] = useState<{ email: string; password: string } | null>(null);
   const bootstrap = useServerFn(ensureBootstrapAdmin);
-  const resolve = useServerFn(resolveLoginEmail);
 
   useEffect(() => {
     bootstrap()
@@ -28,8 +27,10 @@ export function LoginForm() {
     e.preventDefault();
     setBusy(true);
     try {
-      const { email } = await resolve({ data: { identifier } });
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
       if (error) throw error;
       toast.success("Berhasil masuk");
     } catch (err) {
@@ -50,18 +51,19 @@ export function LoginForm() {
             <CalendarCheck className="h-6 w-6" />
           </div>
           <CardTitle>AbsenKelas</CardTitle>
-          <CardDescription>Masuk dengan email atau username</CardDescription>
+          <CardDescription>Masuk menggunakan email</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-3">
             <div>
-              <label className="mb-1.5 block text-sm font-medium">Email atau Username</label>
+              <label className="mb-1.5 block text-sm font-medium">Email</label>
               <Input
-                value={identifier}
-                onChange={(e) => setIdentifier(e.target.value)}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 autoFocus
-                autoComplete="username"
-                placeholder="admin atau nama@email.com"
+                autoComplete="email"
+                placeholder="nama@email.com"
               />
             </div>
             <div>
@@ -79,13 +81,13 @@ export function LoginForm() {
             {hint ? (
               <div className="rounded-md border bg-muted/40 p-3 text-xs">
                 <p className="font-medium">Akun admin baru saja dibuat:</p>
-                <p>Username: <span className="font-mono">admin</span></p>
+                <p>Email: <span className="font-mono">{hint.email}</span></p>
                 <p>Password: <span className="font-mono">{hint.password}</span></p>
                 <p className="mt-1 text-muted-foreground">Segera ganti password setelah login.</p>
               </div>
             ) : (
               <p className="pt-2 text-center text-xs text-muted-foreground">
-                Admin default: <span className="font-mono">admin</span> /{" "}
+                Admin default: <span className="font-mono">admin@kampus.local</span> /{" "}
                 <span className="font-mono">admin123</span>
               </p>
             )}
