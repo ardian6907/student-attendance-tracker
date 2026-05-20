@@ -25,10 +25,15 @@ export function LoginForm() {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
+    const normalizedEmail = email.trim();
+    if (normalizedEmail !== normalizedEmail.toLowerCase()) {
+      toast.error("Email harus ditulis dengan huruf kecil semua");
+      return;
+    }
     setBusy(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         password,
       });
       if (error) throw error;
