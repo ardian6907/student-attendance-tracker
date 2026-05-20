@@ -12,6 +12,10 @@ import {
   adminDeleteUser,
   adminResetPassword,
 } from "@/lib/admin.functions";
+import {
+  deleteAttendanceSession,
+  setAttendanceSessionClosed,
+} from "@/lib/session.functions";
 import { LoginForm } from "@/components/login-form";
 import { QrScanner } from "@/components/qr-scanner";
 import { StatusBadge } from "@/components/status-badge";
@@ -320,6 +324,8 @@ function UserManager({
 // ---------- Dosen ----------
 function DosenPanel({ userId }: { userId: string }) {
   const qc = useQueryClient();
+  const toggleSessionClosed = useServerFn(setAttendanceSessionClosed);
+  const deleteSession = useServerFn(deleteAttendanceSession);
   const sessions = useQuery({
     queryKey: ["sessions"],
     queryFn: async () => {
@@ -349,20 +355,24 @@ function DosenPanel({ userId }: { userId: string }) {
   };
 
   const toggle = async (id: string, closed: boolean) => {
-    const { error } = await supabase
-      .from("attendance_sessions")
-      .update({ closed: !closed })
-      .eq("id", id);
-    if (error) return toast.error(error.message);
-    toast.success(!closed ? "Sesi ditutup" : "Sesi dibuka kembali");
-    await qc.invalidateQueries({ queryKey: ["sessions"] });
+    try {
+      await toggleSessionClosed({ data: { sessionId: id, closed: !closed } });
+      toast.success(!closed ? "Sesi ditutup" : "Sesi dibuka kembali");
+      await qc.invalidateQueries({ queryKey: ["sessions"] });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal mengubah sesi");
+    }
   };
   const remove = async (id: string) => {
     if (!confirm("Hapus sesi ini beserta semua absensinya?")) return;
-    const { error } = await supabase.from("attendance_sessions").delete().eq("id", id);
-    if (error) return toast.error(error.message);
-    qc.invalidateQueries({ queryKey: ["sessions"] });
-    if (active === id) setActive(null);
+    try {
+      await deleteSession({ data: { sessionId: id } });
+      toast.success("Sesi dihapus");
+      await qc.invalidateQueries({ queryKey: ["sessions"] });
+      if (active === id) setActive(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Gagal menghapus sesi");
+    }
   };
 
   const activeSession = sessions.data?.find((s) => s.id === active);
