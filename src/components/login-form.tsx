@@ -28,7 +28,7 @@ export function LoginForm() {
     setBusy(true);
     try {
       const { error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: email.trim().toLowerCase(),
         password,
       });
       if (error) throw error;

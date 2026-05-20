@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { BrowserMultiFormatReader } from "@zxing/browser";
+import { BarcodeFormat, DecodeHintType } from "@zxing/library";
 import { Button } from "@/components/ui/button";
 import { Camera, X, RotateCcw } from "lucide-react";
 
@@ -71,7 +72,10 @@ export function QrScanner({ onResult, onClose }: Props) {
       }
 
       // 2) Hand the live stream to ZXing for decoding.
-      const reader = new BrowserMultiFormatReader();
+      const hints = new Map();
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [BarcodeFormat.QR_CODE]);
+      hints.set(DecodeHintType.TRY_HARDER, true);
+      const reader = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
       try {
         const controls = await reader.decodeFromStream(stream, video, (result) => {
           if (result && !firedRef.current) {

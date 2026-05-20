@@ -82,7 +82,7 @@ export const adminCreateUser = createServerFn({ method: "POST" })
   .inputValidator((input) => createUserSchema.parse(input))
   .handler(async ({ data, context }) => {
     await assertAdmin(context.userId);
-    const email = data.email.trim();
+    const email = data.email.trim().toLowerCase();
     // derive a username from email local part (kept for legacy NOT NULL column)
     const username = email.split("@")[0].replace(/[^a-zA-Z0-9_.-]/g, "_").slice(0, 60) || "user";
 

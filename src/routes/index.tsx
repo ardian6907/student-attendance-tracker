@@ -349,12 +349,18 @@ function DosenPanel({ userId }: { userId: string }) {
   };
 
   const toggle = async (id: string, closed: boolean) => {
-    await supabase.from("attendance_sessions").update({ closed: !closed }).eq("id", id);
-    qc.invalidateQueries({ queryKey: ["sessions"] });
+    const { error } = await supabase
+      .from("attendance_sessions")
+      .update({ closed: !closed })
+      .eq("id", id);
+    if (error) return toast.error(error.message);
+    toast.success(!closed ? "Sesi ditutup" : "Sesi dibuka kembali");
+    await qc.invalidateQueries({ queryKey: ["sessions"] });
   };
   const remove = async (id: string) => {
     if (!confirm("Hapus sesi ini beserta semua absensinya?")) return;
-    await supabase.from("attendance_sessions").delete().eq("id", id);
+    const { error } = await supabase.from("attendance_sessions").delete().eq("id", id);
+    if (error) return toast.error(error.message);
     qc.invalidateQueries({ queryKey: ["sessions"] });
     if (active === id) setActive(null);
   };
@@ -435,6 +441,8 @@ function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canE
   const qc = useQueryClient();
   const data = useQuery({
     queryKey: ["session-att", sessionId],
+    refetchInterval: 3000,
+    refetchIntervalInBackground: true,
     queryFn: async () => {
       const [{ data: students }, { data: roles }, { data: atts }] = await Promise.all([
         supabase.from("profiles").select("id, nama, nim"),
@@ -447,6 +455,20 @@ function SessionAttendanceList({ sessionId, canEdit }: { sessionId: string; canE
       return { list, attMap };
     },
   });
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`att-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "attendances", filter: `session_id=eq.${sessionId}` },
+        () => qc.invalidateQueries({ queryKey: ["session-att", sessionId] }),
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [sessionId, qc]);
 
   const setStatus = async (studentId: string, status: Status, current: Status | undefined) => {
     if (current === status) {
