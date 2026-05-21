@@ -75,9 +75,10 @@ function useMe(userId: string | undefined) {
         supabase.from("user_roles").select("role").eq("user_id", userId!),
       ]);
       const roles = (r ?? []).map((x) => x.role as Role);
-      const role: Role =
+      const role: Role | null =
         roles.includes("admin") ? "admin" :
-        roles.includes("dosen") ? "dosen" : "mahasiswa";
+        roles.includes("dosen") ? "dosen" :
+        roles.includes("mahasiswa") ? "mahasiswa" : null;
       return { profile: p, role };
     },
   });
