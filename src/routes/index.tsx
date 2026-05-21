@@ -8,9 +8,9 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import {
-  adminCreateUser,
   adminDeleteUser,
   adminResetPassword,
+  adminSetUserRole,
 } from "@/lib/admin.functions";
 import {
   deleteAttendanceSession,
@@ -75,9 +75,10 @@ function useMe(userId: string | undefined) {
         supabase.from("user_roles").select("role").eq("user_id", userId!),
       ]);
       const roles = (r ?? []).map((x) => x.role as Role);
-      const role: Role =
+      const role: Role | null =
         roles.includes("admin") ? "admin" :
-        roles.includes("dosen") ? "dosen" : "mahasiswa";
+        roles.includes("dosen") ? "dosen" :
+        roles.includes("mahasiswa") ? "mahasiswa" : null;
       return { profile: p, role };
     },
   });
@@ -114,7 +115,9 @@ function App() {
             </div>
             <div>
               <p className="text-sm font-semibold leading-tight">AbsenKelas</p>
-              <p className="text-xs text-muted-foreground leading-tight">{nama} · {ROLE_LABEL[role]}</p>
+              <p className="text-xs text-muted-foreground leading-tight">
+                {nama} · {role ? ROLE_LABEL[role] : "Menunggu peran"}
+              </p>
             </div>
           </div>
           <Button size="sm" variant="ghost" onClick={() => supabase.auth.signOut()} className="gap-1">
@@ -126,6 +129,16 @@ function App() {
         {role === "admin" && <AdminPanel currentUserId={user.id} />}
         {role === "dosen" && <DosenPanel userId={user.id} />}
         {role === "mahasiswa" && <MahasiswaPanel userId={user.id} />}
+        {role === null && (
+          <Card className="mx-auto max-w-md text-center">
+            <CardHeader>
+              <CardTitle>Menunggu persetujuan admin</CardTitle>
+              <CardDescription>
+                Akun Anda berhasil dibuat. Silakan tunggu administrator menetapkan peran (mahasiswa/dosen) sebelum dapat menggunakan aplikasi.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
       </main>
       <Toaster />
     </div>
@@ -133,6 +146,14 @@ function App() {
 }
 
 // ---------- Admin ----------
+type AdminUser = {
+  id: string;
+  nama: string;
+  username: string;
+  nim: string | null;
+  role: Role | null;
+};
+
 function AdminPanel({ currentUserId }: { currentUserId: string }) {
   const qc = useQueryClient();
   const users = useQuery({
@@ -149,31 +170,47 @@ function AdminPanel({ currentUserId }: { currentUserId: string }) {
           roleMap.set(r.user_id, r.role as Role);
         }
       }
-      return (profiles ?? []).map((p) => ({ ...p, role: roleMap.get(p.id) ?? "mahasiswa" as Role }));
+      return (profiles ?? []).map<AdminUser>((p) => ({
+        ...p,
+        role: roleMap.get(p.id) ?? null,
+      }));
     },
   });
 
+  const all = users.data ?? [];
+  const onChanged = () => qc.invalidateQueries({ queryKey: ["all-users"] });
+
   return (
-    <Tabs defaultValue="mahasiswa" className="space-y-4">
+    <Tabs defaultValue="pending" className="space-y-4">
       <TabsList>
+        <TabsTrigger value="pending" className="gap-1">
+          <Users className="h-4 w-4" />Belum diatur ({all.filter((u) => u.role === null).length})
+        </TabsTrigger>
         <TabsTrigger value="mahasiswa" className="gap-1"><GraduationCap className="h-4 w-4"/>Mahasiswa</TabsTrigger>
         <TabsTrigger value="dosen" className="gap-1"><ShieldCheck className="h-4 w-4"/>Dosen</TabsTrigger>
       </TabsList>
+      <TabsContent value="pending">
+        <UserManager
+          title="Akun Menunggu Peran"
+          users={all.filter((u) => u.role === null)}
+          onChanged={onChanged}
+          currentUserId={currentUserId}
+          emptyText="Tidak ada akun yang menunggu peran."
+        />
+      </TabsContent>
       <TabsContent value="mahasiswa">
         <UserManager
           title="Kelola Mahasiswa"
-          role="mahasiswa"
-          users={(users.data ?? []).filter((u) => u.role === "mahasiswa")}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["all-users"] })}
+          users={all.filter((u) => u.role === "mahasiswa")}
+          onChanged={onChanged}
           currentUserId={currentUserId}
         />
       </TabsContent>
       <TabsContent value="dosen">
         <UserManager
           title="Kelola Dosen"
-          role="dosen"
-          users={(users.data ?? []).filter((u) => u.role === "dosen")}
-          onChanged={() => qc.invalidateQueries({ queryKey: ["all-users"] })}
+          users={all.filter((u) => u.role === "dosen")}
+          onChanged={onChanged}
           currentUserId={currentUserId}
         />
       </TabsContent>
@@ -182,45 +219,21 @@ function AdminPanel({ currentUserId }: { currentUserId: string }) {
 }
 
 function UserManager({
-  title, role, users, onChanged, currentUserId,
+  title, users, onChanged, currentUserId, emptyText,
 }: {
   title: string;
-  role: Role;
-  users: Array<{ id: string; nama: string; username: string; nim: string | null }>;
+  users: AdminUser[];
   onChanged: () => void;
   currentUserId: string;
+  emptyText?: string;
 }) {
-  const create = useServerFn(adminCreateUser);
   const del = useServerFn(adminDeleteUser);
   const reset = useServerFn(adminResetPassword);
+  const setRole = useServerFn(adminSetUserRole);
 
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({ nama: "", email: "", nim: "", password: "" });
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [newPw, setNewPw] = useState("");
   const [busy, setBusy] = useState(false);
-
-  const handleCreate = async () => {
-    setBusy(true);
-    try {
-      await create({
-        data: {
-          nama: form.nama,
-          email: form.email.trim(),
-          password: form.password,
-          role,
-          nim: role === "mahasiswa" ? form.nim : null,
-        },
-      });
-      toast.success("Akun dibuat");
-      setOpen(false);
-      setForm({ nama: "", email: "", nim: "", password: "" });
-      onChanged();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Gagal");
-    } finally { setBusy(false); }
-  };
-
 
   const handleReset = async () => {
     if (!resetFor) return;
@@ -245,52 +258,55 @@ function UserManager({
     }
   };
 
+  const handleRoleChange = async (id: string, value: string) => {
+    const role = value === "none" ? null : (value as "mahasiswa" | "dosen");
+    try {
+      await setRole({ data: { userId: id, role } });
+      toast.success("Peran diperbarui");
+      onChanged();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Gagal");
+    }
+  };
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <div>
-          <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5"/>{title}</CardTitle>
-          <CardDescription>{users.length} akun</CardDescription>
-        </div>
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogTrigger asChild>
-            <Button size="sm" className="gap-1"><Plus className="h-4 w-4"/>Tambah</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Tambah {ROLE_LABEL[role]}</DialogTitle>
-              <DialogDescription>Admin menentukan password awal.</DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3">
-              <Input placeholder="Nama" value={form.nama} onChange={(e)=>setForm({...form, nama: e.target.value})}/>
-              {role === "mahasiswa" && (
-                <Input placeholder="NIM" value={form.nim} onChange={(e)=>setForm({...form, nim: e.target.value})}/>
-              )}
-              <Input type="email" placeholder="Email" value={form.email} onChange={(e)=>setForm({...form, email: e.target.value})}/>
-              <Input type="password" placeholder="Password (min 6)" value={form.password} onChange={(e)=>setForm({...form, password: e.target.value})}/>
-            </div>
-
-            <DialogFooter>
-              <Button disabled={busy} onClick={handleCreate}>{busy ? "Memproses..." : "Buat"}</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2"><Users className="h-5 w-5"/>{title}</CardTitle>
+        <CardDescription>{users.length} akun</CardDescription>
       </CardHeader>
       <CardContent>
         <div className="divide-y rounded-md border">
           {users.length === 0 && (
-            <p className="p-4 text-center text-sm text-muted-foreground">Belum ada akun.</p>
+            <p className="p-4 text-center text-sm text-muted-foreground">
+              {emptyText ?? "Belum ada akun."}
+            </p>
           )}
           {users.map((u) => (
-            <div key={u.id} className="flex items-center justify-between gap-2 p-3">
-              <div>
+            <div key={u.id} className="flex flex-wrap items-center justify-between gap-2 p-3">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">{u.nama}</p>
-                {u.nim && (
-                  <p className="text-xs text-muted-foreground">NIM {u.nim}</p>
-                )}
+                <p className="text-xs text-muted-foreground">
+                  @{u.username}{u.nim ? ` · NIM ${u.nim}` : ""}
+                </p>
               </div>
 
-              <div className="flex gap-1">
+              <div className="flex flex-wrap items-center gap-1">
+                {u.role !== "admin" && (
+                  <Select
+                    value={u.role ?? "none"}
+                    onValueChange={(v) => handleRoleChange(u.id, v)}
+                  >
+                    <SelectTrigger className="h-8 w-[140px] text-xs">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Belum diatur</SelectItem>
+                      <SelectItem value="mahasiswa">Mahasiswa</SelectItem>
+                      <SelectItem value="dosen">Dosen</SelectItem>
+                    </SelectContent>
+                  </Select>
+                )}
                 <Button size="sm" variant="outline" className="gap-1" onClick={()=>{setResetFor(u.id); setNewPw("");}}>
                   <KeyRound className="h-3.5 w-3.5"/>Reset
                 </Button>
@@ -320,6 +336,7 @@ function UserManager({
     </Card>
   );
 }
+
 
 // ---------- Dosen ----------
 function DosenPanel({ userId }: { userId: string }) {
