@@ -8,9 +8,9 @@ import { toast } from "sonner";
 
 import { supabase } from "@/integrations/supabase/client";
 import {
-  adminCreateUser,
   adminDeleteUser,
   adminResetPassword,
+  adminSetUserRole,
 } from "@/lib/admin.functions";
 import {
   deleteAttendanceSession,
