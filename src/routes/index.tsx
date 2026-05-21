@@ -115,7 +115,9 @@ function App() {
             </div>
             <div>
               <p className="text-sm font-semibold leading-tight">AbsenKelas</p>
-              <p className="text-xs text-muted-foreground leading-tight">{nama} · {ROLE_LABEL[role]}</p>
+              <p className="text-xs text-muted-foreground leading-tight">
+                {nama} · {role ? ROLE_LABEL[role] : "Menunggu peran"}
+              </p>
             </div>
           </div>
           <Button size="sm" variant="ghost" onClick={() => supabase.auth.signOut()} className="gap-1">
@@ -127,6 +129,16 @@ function App() {
         {role === "admin" && <AdminPanel currentUserId={user.id} />}
         {role === "dosen" && <DosenPanel userId={user.id} />}
         {role === "mahasiswa" && <MahasiswaPanel userId={user.id} />}
+        {role === null && (
+          <Card className="mx-auto max-w-md text-center">
+            <CardHeader>
+              <CardTitle>Menunggu persetujuan admin</CardTitle>
+              <CardDescription>
+                Akun Anda berhasil dibuat. Silakan tunggu administrator menetapkan peran (mahasiswa/dosen) sebelum dapat menggunakan aplikasi.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        )}
       </main>
       <Toaster />
     </div>
