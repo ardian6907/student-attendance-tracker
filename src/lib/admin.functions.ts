@@ -37,17 +37,27 @@ export const resolveLoginEmail = createServerFn({ method: "POST" })
     return { email: u.user.email };
   });
 
-/** Bootstrap the first admin if none exists. Idempotent. */
+/** Bootstrap the default admin (admin@gmail.com / admin123) if it doesn't exist. Idempotent. */
 export const ensureBootstrapAdmin = createServerFn({ method: "POST" }).handler(
   async () => {
-    const { count } = await supabaseAdmin
-      .from("user_roles")
-      .select("*", { count: "exact", head: true })
-      .eq("role", "admin");
-    if ((count ?? 0) > 0) return { created: false };
-
-    const email = `admin@${EMAIL_DOMAIN}`;
+    const email = "admin@gmail.com";
     const password = "admin123";
+
+    const { data: list } = await supabaseAdmin.auth.admin.listUsers();
+    const existing = list?.users?.find((u) => u.email?.toLowerCase() === email);
+    if (existing) {
+      const { data: hasRole } = await supabaseAdmin
+        .from("user_roles")
+        .select("id")
+        .eq("user_id", existing.id)
+        .eq("role", "admin")
+        .maybeSingle();
+      if (!hasRole) {
+        await supabaseAdmin.from("user_roles").insert({ user_id: existing.id, role: "admin" });
+      }
+      return { created: false };
+    }
+
     const { data: created, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
@@ -56,7 +66,7 @@ export const ensureBootstrapAdmin = createServerFn({ method: "POST" }).handler(
     });
     if (error || !created.user) throw new Error(error?.message ?? "Gagal membuat admin");
 
-    await supabaseAdmin.from("profiles").insert({
+    await supabaseAdmin.from("profiles").upsert({
       id: created.user.id,
       username: "admin",
       nama: "Administrator",
@@ -68,6 +78,31 @@ export const ensureBootstrapAdmin = createServerFn({ method: "POST" }).handler(
     return { created: true, email, password };
   },
 );
+
+/** Admin sets or clears the role (dosen/mahasiswa) for a user. */
+export const adminSetUserRole = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input) =>
+    z.object({
+      userId: z.string().uuid(),
+      role: z.enum(["dosen", "mahasiswa"]).nullable(),
+    }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    await assertAdmin(context.userId);
+    await supabaseAdmin
+      .from("user_roles")
+      .delete()
+      .eq("user_id", data.userId)
+      .in("role", ["dosen", "mahasiswa"]);
+    if (data.role) {
+      const { error } = await supabaseAdmin
+        .from("user_roles")
+        .insert({ user_id: data.userId, role: data.role });
+      if (error) throw new Error(error.message);
+    }
+    return { ok: true };
+  });
 
 const createUserSchema = z.object({
   email: z.string().email(),
