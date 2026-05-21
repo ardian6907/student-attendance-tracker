@@ -40,7 +40,7 @@ export const resolveLoginEmail = createServerFn({ method: "POST" })
 /** Bootstrap the default admin (admin@gmail.com / admin123) if it doesn't exist. Idempotent. */
 export const ensureBootstrapAdmin = createServerFn({ method: "POST" }).handler(
   async () => {
-    const email = "admin@gmail.com";
+    const email = "admin@kampus.local";
     const password = "admin123";
 
     const { data: list } = await supabaseAdmin.auth.admin.listUsers();
