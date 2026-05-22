@@ -173,3 +173,40 @@ export const adminDeleteUser = createServerFn({ method: "POST" })
     if (error) throw new Error(error.message);
     return { ok: true };
   });
+
+/** Admin lists all users (id, email, nama, nim, role, sessionsCount). */
+export const adminListUsers = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await assertAdmin(context.userId);
+    const [{ data: profiles }, { data: roles }, { data: sessions }, authList] = await Promise.all([
+      supabaseAdmin.from("profiles").select("id, nama, nim, username"),
+      supabaseAdmin.from("user_roles").select("user_id, role"),
+      supabaseAdmin.from("attendance_sessions").select("created_by"),
+      supabaseAdmin.auth.admin.listUsers({ perPage: 1000 }),
+    ]);
+    const emailMap = new Map<string, string>();
+    for (const u of authList.data?.users ?? []) emailMap.set(u.id, u.email ?? "");
+    const roleMap = new Map<string, "admin" | "dosen" | "mahasiswa">();
+    for (const r of roles ?? []) {
+      const cur = roleMap.get(r.user_id);
+      const role = r.role as "admin" | "dosen" | "mahasiswa";
+      if (!cur || role === "admin" || (role === "dosen" && cur === "mahasiswa")) {
+        roleMap.set(r.user_id, role);
+      }
+    }
+    const sessionCount = new Map<string, number>();
+    for (const s of sessions ?? []) {
+      if (s.created_by) sessionCount.set(s.created_by, (sessionCount.get(s.created_by) ?? 0) + 1);
+    }
+    return (profiles ?? []).map((p) => ({
+      id: p.id,
+      nama: p.nama,
+      nim: p.nim,
+      username: p.username,
+      email: emailMap.get(p.id) ?? "",
+      role: roleMap.get(p.id) ?? null,
+      sessionsCount: sessionCount.get(p.id) ?? 0,
+    }));
+  });
+
