@@ -108,7 +108,7 @@ const createUserSchema = z.object({
   email: z.string().email(),
   nama: z.string().min(1).max(120),
   password: z.string().min(6).max(120),
-  role: z.enum(["admin", "dosen", "mahasiswa"]),
+  role: z.enum(["dosen", "mahasiswa"]),
   nim: z.string().max(40).optional().nullable(),
 });
 
