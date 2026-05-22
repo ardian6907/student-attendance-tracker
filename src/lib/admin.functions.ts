@@ -129,12 +129,20 @@ export const adminCreateUser = createServerFn({ method: "POST" })
     });
     if (error || !created.user) throw new Error(error?.message ?? "Gagal membuat user");
 
-    const { error: pErr } = await supabaseAdmin.from("profiles").insert({
+    const { error: pErr } = await supabaseAdmin
+  .from("profiles")
+  .upsert(
+    {
       id: created.user.id,
       username,
       nama: data.nama,
       nim: data.nim || null,
-    });
+    },
+    {
+      onConflict: "id",
+    },
+  );
+   
     if (pErr) {
       await supabaseAdmin.auth.admin.deleteUser(created.user.id);
       throw new Error(pErr.message);
